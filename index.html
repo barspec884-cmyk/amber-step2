@@ -934,26 +934,11 @@ function removeTag(btn){
   syncPaletteWithTags();
 }
 
-// ── Firebase Firestore 保存・読み込み（統合版） ──────────────────────
+// ── サーバーAPI経由でFirestoreにアクセス ──────────────────────
+// APIキーはVercelのサーバー側(環境変数)に保管されており、
+// ブラウザからは /api/firestore を経由してアクセスします。
 
-let _firebaseCache = null;
-async function getFirebase(){
-  if(_firebaseCache) return _firebaseCache;
-  const { initializeApp, getApps } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-  const { getFirestore } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-  const firebaseConfig = {
-    apiKey: "AIzaSyCKwC5DkIU89fAaU9Rsu6y0Pwr6T3W3-mg",
-    authDomain: "amber--nexus.firebaseapp.com",
-    projectId: "amber--nexus",
-    storageBucket: "amber--nexus.firebasestorage.app",
-    messagingSenderId: "704807370100",
-    appId: "1:704807370100:web:0daecde27107c6b592c021"
-  };
-  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-  _firebaseCache = { app, db };
-  return _firebaseCache;
-}
+const API_URL = '/api/firestore';
 
 function showSaveIndicator(msg, isError=false){
   let el = document.getElementById('save-indicator');
@@ -991,44 +976,55 @@ async function saveTags(){
   const glassData = appliedGlassCode || null;
 
   try {
-    const { db } = await getFirebase();
-    const { doc, setDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    await setDoc(doc(db, "tasting_sessions", "page1-visual"), {
-      tags: allTags,
-      selectedColor: colorData,
-      selectedGlass: glassData,
-      sliders: { speed: sliderVals.speed, visc: sliderVals.visc },
-      updatedAt: serverTimestamp()
+    const resp = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        docId: 'page1-visual',
+        data: {
+          tags: allTags,
+          selectedColor: colorData,
+          selectedGlass: glassData,
+          sliders: { speed: sliderVals.speed, visc: sliderVals.visc }
+        },
+        merge: false
+      })
     });
+    if (!resp.ok) throw new Error('Save failed');
     showSaveIndicator('✓ 保存しました');
   } catch(e){
-    console.error('Firestore save error:', e);
+    console.error('Save error:', e);
     showSaveIndicator('⚠ 保存失敗: ' + e.message, true);
   }
 }
 
 async function saveSliders(){
   try{
-    const { db } = await getFirebase();
-    const { doc, setDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    await setDoc(doc(db, "tasting_sessions", "page1-visual"), {
-      sliders: { speed: sliderVals.speed, visc: sliderVals.visc },
-      updatedAt: serverTimestamp()
-    }, { merge: true });
+    const resp = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        docId: 'page1-visual',
+        data: {
+          sliders: { speed: sliderVals.speed, visc: sliderVals.visc }
+        },
+        merge: true
+      })
+    });
+    if (!resp.ok) throw new Error('Save failed');
     showSaveIndicator('✓ 保存しました');
   }catch(e){
-    console.error('Firestore saveSliders error:', e);
+    console.error('saveSliders error:', e);
     showSaveIndicator('⚠ 保存失敗', true);
   }
 }
 
 async function loadAll(){
   try {
-    const { db } = await getFirebase();
-    const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const snap = await getDoc(doc(db, "tasting_sessions", "page1-visual"));
-    if(!snap.exists()) return;
-    const data = snap.data();
+    const resp = await fetch(API_URL + '?doc=page1-visual');
+    const result = await resp.json();
+    if(!result.exists || !result.data) return;
+    const data = result.data;
 
     // タグを復元
     const allTags = data.tags || {};
@@ -1075,7 +1071,7 @@ async function loadAll(){
       ['speed','visc'].forEach(k=>updateSlider(k,sliderVals[k]));
     }
   } catch(e){
-    console.error('Firestore load error:', e);
+    console.error('Load error:', e);
   }
 }
 
